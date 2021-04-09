@@ -1,35 +1,55 @@
 package main
 
-func main() {
+import (
+	"fmt"
+	"io/ioutil"
+	"os"
+	"regexp"
 
-	// DOWNLOADE FILE IN MAIN FUNKTION!
-	// fileUrl := "http://micl-easj.dk/Machine%20Learning/Noter%20and%20Books/Machine%20Learning%20Landscape%20Ch.%201/ML%20Landscape%20No.%201%20Overview%20%202021.01.28.mp4"
-	// err := DownloadFile("Test.mp4", fileUrl)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Println("Downloaded: " + fileUrl)
+	"github.com/gocolly/colly/v2"
+)
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
 }
 
-// DownloadFile will download a url to a local file. It's efficient because it will
-// write as it downloads and not load the whole file into memory.
-// func DownloadFile(filepath string, url string) error {
+func main() {
+	c := colly.NewCollector(
+		// Visit only domains: hackerspaces.org, wiki.hackerspaces.org
+		colly.AllowedDomains("micl-easj.dk"),
+	)
 
-// 	// Get the data
-// 	resp, err := http.Get(url)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer resp.Body.Close()
+	// On every a element which has href attribute call callback
+	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		link := e.Attr("href")
+		// Print link
+		// fmt.Printf("Link found: %q -> %s\n", e.Text, link)
 
-// 	// Create the file
-// 	out, err := os.Create(filepath)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer out.Close()
+		r, _ := regexp.Compile("(m+p+4)")
 
-// 	// Write the body to file
-// 	_, err = io.Copy(out, resp.Body)
-// 	return err
-// }
+		// Visit link found on page
+		// Only those links are visited which are in AllowedDomains
+		if r.MatchString(link) == true {
+			d1 := []byte(link + "\ngo\n")
+			err := ioutil.WriteFile("/links-txt/"+e.Text+".txt", d1, 0644)
+			fmt.Printf("wrote %d bytes\n", d1)
+			check(err)
+			f, err := os.Create("/links-txt/" + e.Text + ".txt")
+			check(err)
+
+			defer f.Close()
+		} else {
+			c.Visit(e.Request.AbsoluteURL("http://micl-easj.dk/" + link))
+		}
+	})
+
+	// Before making a request print "Visiting ..."
+	c.OnRequest(func(r *colly.Request) {
+		// fmt.Println("Visiting", r.URL.String())
+	})
+
+	// Start scraping on https://hackerspaces.org
+	c.Visit("http://micl-easj.dk/")
+}
