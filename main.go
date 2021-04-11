@@ -1,21 +1,29 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"regexp"
 	"sync"
 
 	"github.com/gocolly/colly/v2"
 )
 
-type autoInc struct {
+type Any interface{}
+type autoInc_person struct {
 	sync.Mutex
 	id int
 }
 
-func (a *autoInc) ID() (id int) {
+type autoInc_video struct {
+	sync.Mutex
+	id int
+}
+
+func (a *autoInc_person) ID_P() (id int) {
 	a.Lock()
 	defer a.Unlock()
 	id = a.id
@@ -23,36 +31,90 @@ func (a *autoInc) ID() (id int) {
 	return
 }
 
-var ai autoInc
-var V_ID autoInc
-
-type VideoInfomation struct {
-	ID    int
-	Titel string
-	Url   string
-	Dato  string
+func (b *autoInc_video) ID_V() (id int) {
+	b.Lock()
+	defer b.Unlock()
+	id = b.id
+	b.id++
+	return
 }
+
+var ai_p autoInc_person
+var ai_v autoInc_video
 
 type Person struct {
-	ID               int
-	PrimitiveID      string
-	Navn             string
-	Website          string
-	VideoInfomations []VideoInfomation
+	ID_Person   int
+	PrimitiveID string
+	Navn        string
+	Website     string
+	Videos      []Video
+}
+type Video struct {
+	ID_Video int
+	Titel    string
+	Url      string
+	Dato     string
 }
 
-var PersonData Person
-var VideoData VideoInfomation
+type Videos []*Video
 
-func NewPerson() *Person {
-	return &Person{
-		ID: ai.ID(),
+func (vs Videos) Process(f func(video *Video)) {
+	for _, video := range vs {
+		f(video)
 	}
 }
 
-func newVideo() *VideoInfomation {
-	return &VideoInfomation{
-		ID: ai.ID(),
+func (vs Videos) FindAll(f func(video *Video) bool) Videos {
+	videos := make([]*Video, 0)
+	vs.Process(func(v *Video) {
+		if f(v) {
+			videos = append(videos, v)
+		}
+	})
+	return videos
+}
+
+func (vs Videos) Map(f func(video *Video) Any) []Any {
+	result := make([]Any, 0)
+	ix := 0
+	vs.Process(func(v *Video) {
+		result[ix] = f(v)
+		ix++
+	})
+	return result
+}
+
+func MakeSortedAppender(manufacture []string) (func(video *Video), map[string]Videos) {
+	sortedVideos := make(map[string]Videos)
+
+	for _, m := range manufacture {
+		sortedVideos[m] = make([]*Video, 0)
+	}
+
+	sortedVideos["Default"] = make([]*Video, 0)
+
+	appender := func(v *Video) {
+		if _, ok := sortedVideos[v.Dato]; ok {
+			sortedVideos[v.Dato] = append(sortedVideos[v.Dato], v)
+		} else {
+			sortedVideos["Default"] = append(sortedVideos["Default"], v)
+		}
+	}
+
+	return appender, sortedVideos
+}
+
+var PersonData Person
+var VideoData Video
+
+func NewPerson() *Person {
+	return &Person{
+		ID_Person: ai_p.ID_P(),
+	}
+}
+func NewVideo() *Video {
+	return &Video{
+		ID_Video: ai_v.ID_V(),
 	}
 }
 
@@ -106,25 +168,38 @@ func main() {
 				// Her har den ikke fundet er dato. og sætter derfpr datoem til N/A
 				tempVideoDato = "N/A"
 			}
+			test123 := ai_v.id
+			micl := &Video{test123, VideoData.Titel, tempVideoUrl, tempVideoDato}
+			allVideos := Videos([]*Video{micl})
+			allNewVideos := allVideos.FindAll(func(video *Video) bool {
+				return (video.ID_Video == 1) && (video.ID_Video > 2010)
+			})
+			fmt.Println("All Videos: ", allVideos)
+			fmt.Println("New Videos: ", allNewVideos)
 
-			newVideo()
+			copyright := []string{"mich", "Person2", "Person3"}
+			sortedAppender, sortedVideos := MakeSortedAppender(copyright)
+			allVideos.Process(sortedAppender)
+			fmt.Println("Map sortedVideos: ", sortedVideos)
+			MichCount := len(sortedVideos["mich"])
+			fmt.Println("Mic har lavet ", MichCount, "Videoer")
 			VideoData.Titel = tempVideoTitel
 			VideoData.Url = tempVideoUrl
 			VideoData.Dato = tempVideoDato
-			fmt.Printf("Video_ID: %d -> Dato: %s Titel: %s\n", VideoData.ID, VideoData.Dato, VideoData.Titel)
+			//fmt.Printf("Video_ID: %d -> Dato: %s Titel: %s\n", test123, VideoData.Dato, VideoData.Titel)
 
-			// mydata, _ := json.MarshalIndent(PersonData, "test", "")
+			mydata, _ := json.MarshalIndent(NewVideo(), PersonData.PrimitiveID, PersonData.Navn)
 
-			// f, err := os.OpenFile("myfile.data", os.O_APPEND|os.O_WRONLY, 0600)
-			// if err != nil {
-			// 	panic(err)
-			// }
-			// defer f.Close()
+			f, err := os.OpenFile("myfile.data", os.O_APPEND|os.O_WRONLY, 0600)
+			if err != nil {
+				panic(err)
+			}
+			defer f.Close()
 
-			// if _, err = f.WriteString(string(mydata)); err != nil {
-			// 	panic(err)
-			// }
-			//fmt.Printf("%+v\n", Person[ID])
+			if _, err = f.WriteString(string(mydata)); err != nil {
+				panic(err)
+			}
+
 		} else {
 			c.Visit(e.Request.AbsoluteURL("http://micl-easj.dk/" + link))
 		}
