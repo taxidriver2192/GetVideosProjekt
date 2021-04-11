@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"regexp"
@@ -23,15 +25,13 @@ func (a *autoInc) ID() (id int) {
 	return
 }
 
-type Videos interface {
-	NewVideo()
-}
 type Video struct {
 	Id    int
 	Titel string
 	Url   string
 	Dato  string
 }
+
 type Person struct {
 	Id      int
 	Navn    string
@@ -41,28 +41,24 @@ type Person struct {
 
 var ai autoInc
 
-func newPerson() *Person {
+func NewPerson() *Person {
 	return &Person{
 		Id: ai.ID(),
 	}
 }
-func NewVideo() *Video {
-	return &Video{
-		Id: ai.ID(),
-	}
-}
 
-func (box *Person) AddItem(item Video) []Video {
-	box.Videos = append(box.Videos, item)
-	return box.Videos
+func (person *Person) AddVideo(item Video) []Video {
+	person.Videos = append(person.Videos, item)
+	return person.Videos
 }
 
 func main() {
-	personData := Person{
-		Id:      newPerson().Id,
+	Videos := []Video{}
+	person := Person{
+		Id:      NewPerson().Id,
 		Navn:    "Micl",
 		Website: "test.dk",
-		Videos:  []Video{},
+		Videos:  Videos,
 	}
 
 	c := colly.NewCollector(
@@ -105,44 +101,36 @@ func main() {
 				// Tester om datoen står på en anden måde?
 				dato := OtherDatoField.Copy().Find([]byte(link))
 				videoDato = string(dato)
-			} else {
+			} else if r_validVideoLink.MatchString(e.Text) == true
+		{
+				dato := r_findDate.Copy().Find([]byte(link))
+				// Ved ikke hvorfor men nogle gange skriver han YYYY.MM.DD
+				// Hvis den giver true, skal jeg lave om på formateringen af datoen.
+				r_wongDateFormate, _ := regexp.Compile("([0-9]{4}.[0-9]{2}.[0-9]{2})")
+				if r_wongDateFormate.MatchString(link) == true {
+					year := fmt.Sprint(string(dato[:+4]))
+					month := fmt.Sprint(string(dato[5:7]))
+					date := string(dato[len(dato)-2:])
+					videoDato = (date + "." + month + "." + year)
+				} else {
+					// Her har den fundet datoeen men den står ikke forkert.
+					videoDato = string(dato)
+				}
+
+			}else {
 				// Her har den ikke fundet er dato. og sætter derfpr datoem til N/A
 				videoDato = "N/A"
 			}
 			//fmt.Println(personData)
-			hejVideo := Video{Id: NewVideo().Id, Titel: videoTitel, Url: videoUrl, Dato: videoDato}
-			hejVideo.print()
-
-			personData.print()
-
-			//personData
-			// hej := person{
-			// 	id:      personData.id,
-			// 	navn:    personData.navn,
-			// 	website: personData.website,
-			// 	videos: []video{
-			// 		video{
-			// 			id:    videoData.id,
-			// 			titel: videoTitel,
-			// 			url:   videoUrl,
-			// 			dato:  videoDato,
-			// 		},
-			// 	},
-			// }
-
-			//fmt.Printf("Video_ID: %d -> Dato: %s Titel: %s\n", test123, VideoData.Dato, VideoData.Titel)
-
-			//mydata, _ := json.MarshalIndent(NewVideo(), PersonData.PrimitiveID, PersonData.Navn)
-
-			f, err := os.OpenFile("myfile.data", os.O_APPEND|os.O_WRONLY, 0600)
+			//NewVideo := Video{Titel: videoTitel, Url: videoUrl, Dato: videoDato}
+			//NewVideo.print()
+			unescapedPath, err := url.PathUnescape(videoUrl)
 			if err != nil {
-				panic(err)
+				log.Fatal(err)
 			}
-			defer f.Close()
-
-			// if _, err = f.WriteString(string(mydata)); err != nil {
-			// 	panic(err)
-			// }
+			newVideo := Video{Id: NewPerson().Id, Titel: videoTitel, Url: unescapedPath, Dato: videoDato}
+			person.AddVideo(newVideo)
+			fmt.Printf("Video_ID: %d -> Dato: %s Titel: %s\n", newVideo.Id, newVideo.Dato, newVideo.Titel)
 
 		} else {
 			c.Visit(e.Request.AbsoluteURL("http://micl-easj.dk/" + link))
@@ -156,16 +144,19 @@ func main() {
 
 	// Start scraping on https://hackerspaces.org
 
-	// PersonData.Navn = "test"
-	// PersonData.Website = "http://micl-easj.dk/"
-
 	c.Visit("http://micl-easj.dk/")
+	fmt.Println("test!")
+	mydata, _ := json.MarshalIndent(person, "", "")
 
-}
+	f, err := os.OpenFile("myfile.data", os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
 
-func (p Person) print() {
-	fmt.Println(p)
-}
-func (v Video) print() {
-	fmt.Println(v)
+	if _, err = f.WriteString(string(mydata)); err != nil {
+		panic(err)
+	}
+	fmt.Println(person)
+
 }
