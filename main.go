@@ -3,11 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"net/url"
 	"os"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -22,6 +21,14 @@ func (a *autoInc) ID() (id int) {
 	defer a.Unlock()
 	id = a.id
 	a.id++
+	return
+}
+
+func (b *autoInc) ID_() (id int) {
+	b.Lock()
+	defer b.Unlock()
+	id = b.id
+	b.id++
 	return
 }
 
@@ -53,6 +60,7 @@ func (person *Person) AddVideo(item Video) []Video {
 }
 
 func main() {
+	timeStart := time.Now()
 	Videos := []Video{}
 	person := Person{
 		Id:      NewPerson().Id,
@@ -62,10 +70,10 @@ func main() {
 	}
 
 	c := colly.NewCollector(
-		// Visit only domains: hackerspaces.org, wiki.hackerspaces.org
+		// hvilke Domains er godkendt.
 		colly.AllowedDomains("micl-easj.dk"),
+		// colly.AllowedDomains("micl-easj.dk", "easj.dk", "easj.cloud.dk", "easj.cloud.panopto.eu", "cloudfront.net"),
 	)
-
 	// On every a element which has href attribute call callback
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 
@@ -75,88 +83,95 @@ func main() {
 		// Only those links are visited which are in AllowedDomains
 		r_validVideoLink, _ := regexp.Compile("(m+p+4)")
 		r_findDate, _ := regexp.Compile("([0-9]{2}.[0-9]{2}.[0-9]{4})|([0-9]{4}.[0-9]{2}.[0-9]{2})")
-		OtherDatoField, _ := regexp.Compile("/^(?:(?:31(/|-|.)(?:0?[13578]|1[02]))1|(?:(?:29|30)(/|-|.)(?:0?[1,3-9]|1[0-2])2))(?:(?:1[6-9]|[2-9]d)?d{2})$|^(?:29(/|-|.)0?23(?:(?:(?:1[6-9]|[2-9]d)?(?:0[48]|[2468][048]|[13579][26])|(?:(?:16|[2468][048]|[3579][26])00))))$|^(?:0?[1-9]|1d|2[0-8])(/|-|.)(?:(?:0?[1-9])|(?:1[0-2]))4(?:(?:1[6-9]|[2-9]d)?d{2})$/g")
+		r_wongDateFormate, _ := regexp.Compile("([0-9]{4}.[0-9]{2}.[0-9]{2})")
+		r_otherDatoField, _ := regexp.Compile("/^(?:(?:31(/|-|.)(?:0?[13578]|1[02]))1|(?:(?:29|30)(/|-|.)(?:0?[1,3-9]|1[0-2])2))(?:(?:1[6-9]|[2-9]d)?d{2})$|^(?:29(/|-|.)0?23(?:(?:(?:1[6-9]|[2-9]d)?(?:0[48]|[2468][048]|[13579][26])|(?:(?:16|[2468][048]|[3579][26])00))))$|^(?:0?[1-9]|1d|2[0-8])(/|-|.)(?:(?:0?[1-9])|(?:1[0-2]))4(?:(?:1[6-9]|[2-9]d)?d{2})$/g")
+		//Bedre Navne.
+		mp4LinkCheck := r_validVideoLink.MatchString(link) == true
+		copyDataLinkSimple := r_findDate.MatchString(link) == true
+		copyLink := r_findDate.Copy().Find([]byte(link))
+		usaTimestandCheck := r_wongDateFormate.MatchString(link) == true
+		// Han skriver datoen som USA TID YYYY.MM.DD
+		// Hvis jeg scanner en anden side der ikke bruger den format, vil den være forkert format.
+		copyDataLinkHardCheck := r_otherDatoField.MatchString(link) == true
+		titelGotDate := r_findDate.MatchString(e.Text) == true
 
-		if r_validVideoLink.MatchString(link) == true {
-			// info.ID = int(ai.ID())
+		if mp4LinkCheck {
 			videoTitel := e.Text
 			videoDato := ""
-			u, _ := url.Parse(link)
-			videoUrl := ("http://micl-easj.Dk" + u.EscapedPath())
-			if r_findDate.MatchString(link) == true {
-				dato := r_findDate.Copy().Find([]byte(link))
-				// Ved ikke hvorfor men nogle gange skriver han YYYY.MM.DD
-				// Hvis den giver true, skal jeg lave om på formateringen af datoen.
-				r_wongDateFormate, _ := regexp.Compile("([0-9]{4}.[0-9]{2}.[0-9]{2})")
-				if r_wongDateFormate.MatchString(link) == true {
+			dato := ""
+			videoUrl := ("http://micl-easj.Dk" + string(link))
+			if copyDataLinkSimple {
+				dato = string(copyLink)
+				if usaTimestandCheck {
+					// USA TID YYYY.MM.DD
+					// Laver det om til DD.MM.YYYY
 					year := fmt.Sprint(string(dato[:+4]))
 					month := fmt.Sprint(string(dato[5:7]))
 					date := string(dato[len(dato)-2:])
 					videoDato = (date + "." + month + "." + year)
+					// fmt.Println("USA TIMESTAND?")
+					// fmt.Println("videoUrl: " + videoUrl)
+					// fmt.Println("videoDato: " + videoDato)
 				} else {
-					// Her har den fundet datoeen men den står ikke forkert.
+					fmt.Println("Ikke USA TIMESTAND?")
+					fmt.Println("videoUrl: " + videoUrl)
+					fmt.Println("videoDato: " + videoDato)
 					videoDato = string(dato)
 				}
-			} else if OtherDatoField.MatchString(link) == true {
-				// Tester om datoen står på en anden måde?
-				dato := OtherDatoField.Copy().Find([]byte(link))
-				videoDato = string(dato)
-			} else if r_validVideoLink.MatchString(e.Text) == true
-		{
-				dato := r_findDate.Copy().Find([]byte(link))
-				// Ved ikke hvorfor men nogle gange skriver han YYYY.MM.DD
-				// Hvis den giver true, skal jeg lave om på formateringen af datoen.
-				r_wongDateFormate, _ := regexp.Compile("([0-9]{4}.[0-9]{2}.[0-9]{2})")
-				if r_wongDateFormate.MatchString(link) == true {
-					year := fmt.Sprint(string(dato[:+4]))
-					month := fmt.Sprint(string(dato[5:7]))
-					date := string(dato[len(dato)-2:])
-					videoDato = (date + "." + month + "." + year)
-				} else {
-					// Her har den fundet datoeen men den står ikke forkert.
-					videoDato = string(dato)
-				}
-
-			}else {
-				// Her har den ikke fundet er dato. og sætter derfpr datoem til N/A
+			} else if copyDataLinkHardCheck {
+				videoDato = string(r_otherDatoField.Copy().Find([]byte(link)))
+			} else if titelGotDate {
+				videoDato = string(r_otherDatoField.Copy().Find([]byte(e.Text)))
+			} else {
+				// Kan ikke finde en dato
 				videoDato = "N/A"
+				fmt.Println("---------------------------")
+				fmt.Println("ERROR")
+				fmt.Println("---------------------------")
+				fmt.Println("DATO ER BLEVET SAT TIL N/A")
+				fmt.Println("videoTitel: " + videoTitel)
+				fmt.Println("videoUrl: " + videoUrl)
+				fmt.Println("videoDato: " + videoDato)
+				fmt.Println("---------------------------")
 			}
-			//fmt.Println(personData)
-			//NewVideo := Video{Titel: videoTitel, Url: videoUrl, Dato: videoDato}
-			//NewVideo.print()
-			unescapedPath, err := url.PathUnescape(videoUrl)
-			if err != nil {
-				log.Fatal(err)
-			}
-			newVideo := Video{Id: NewPerson().Id, Titel: videoTitel, Url: unescapedPath, Dato: videoDato}
+			// Fundet alt data jeg skal bruge. så tilføre det til lidsten.
+			newVideo := Video{Id: NewPerson().Id, Titel: videoTitel, Url: videoUrl, Dato: videoDato}
+			// Tilføre det til lidsten.
 			person.AddVideo(newVideo)
 			fmt.Printf("Video_ID: %d -> Dato: %s Titel: %s\n", newVideo.Id, newVideo.Dato, newVideo.Titel)
-
 		} else {
-			c.Visit(e.Request.AbsoluteURL("http://micl-easj.dk/" + link))
+			c.Visit(e.Request.AbsoluteURL(e.Request.ProxyURL + link))
 		}
 	})
-
-	// Before making a request print "Visiting ..."
-	c.OnRequest(func(r *colly.Request) {
-		// fmt.Println("Visiting", r.URL.String())
-	})
-
-	// Start scraping on https://hackerspaces.org
-
+	//c.Visit("https://easj.cloud.panopto.eu/Panopto/Pages/Sessions/List.aspx")
 	c.Visit("http://micl-easj.dk/")
-	fmt.Println("test!")
-	mydata, _ := json.MarshalIndent(person, "", "")
-
-	f, err := os.OpenFile("myfile.data", os.O_APPEND|os.O_WRONLY, 0600)
+	videosJson, _ := json.MarshalIndent(person, "", "")
+	f, err := os.OpenFile("videos.json", os.O_APPEND|os.O_WRONLY, 0600)
+	// FEJL!
+	// Kunne ikke åbne filen.
 	if err != nil {
 		panic(err)
 	}
 	defer f.Close()
-
-	if _, err = f.WriteString(string(mydata)); err != nil {
+	// FEJL!
+	// Kunne ikke skrive til filen
+	if _, err = f.WriteString(string(videosJson)); err != nil {
 		panic(err)
 	}
-	fmt.Println(person)
+	timeEnd := time.Now()
+	elapsed := timeEnd.Sub(timeStart)
+	//fmt.Print("\033[H\033[2J")
+	fmt.Println("---------------------------")
+	fmt.Println("DONE DONE")
+	fmt.Println("---------------------------")
+	fmt.Print("Har tilført ")
+	fmt.Print(len(person.Videos))
+	fmt.Print(" Videoer til \"./videos.json\"")
+	fmt.Println()
+	fmt.Print("Det tog hele scanne ")
+	fmt.Print(elapsed)
+	fmt.Print(" at scanne dem!")
+	fmt.Println()
+	fmt.Println("---------------------------")
 
 }
